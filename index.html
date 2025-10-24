@@ -422,10 +422,6 @@
             { text: "friend", audio: "https://dictionary.cambridge.org/media/english/uk_pron/u/ukf/ukfri/ukfrica007.mp3" }
 
         ];
-
-        // Time-up sound URL (using your provided link)
-        const timeUpSound = "https://cdn.pixabay.com/audio/2025/10/16/audio_becf266b23.mp3";
-
         // DOM elements
         const wordsGrid = document.getElementById('wordsGrid');
         const currentWordElement = document.getElementById('currentWord');
@@ -435,15 +431,15 @@
         const nextBtn = document.getElementById('nextBtn');
         const repeatBtn = document.getElementById('repeatBtn');
         const resetBtn = document.getElementById('resetBtn');
+        const mobileWarning = document.getElementById('mobileWarning');
 
         // App state
         let timerInterval;
         let seconds = 0;
         let playedWords = [];
         let currentWord = null;
-        let isPlaying = false;
-        let timeUpTriggered = false;
-        let timeUpAudio = null;
+        let audioContext;
+        let isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
 
         // Initialize the words grid
         function initializeWordsGrid() {
@@ -474,8 +470,7 @@
                 timerElement.textContent = formatTime(seconds);
                 
                 // Check if 1 minute (60 seconds) has passed
-                if (seconds >= 5 && !timeUpTriggered) {
-                    timeUpTriggered = true;
+                if (seconds >= 60) {
                     stopTimer();
                     playTimeUpSound();
                     currentWordElement.textContent = "Time's Up!";
@@ -494,60 +489,47 @@
         function resetTimer() {
             stopTimer();
             seconds = 0;
-            timeUpTriggered = false;
             timerElement.textContent = formatTime(seconds);
         }
 
-        // Preload and play time-up sound with mobile compatibility
-        function playTimeUpSound() {
-            // Create audio element if it doesn't exist
-            if (!timeUpAudio) {
-                timeUpAudio = new Audio(timeUpSound);
-                timeUpAudio.preload = 'auto';
-                
-                // Add error handling
-                timeUpAudio.addEventListener('error', function() {
-                    console.error('Error loading time-up sound');
-                    // Fallback to a simple beep using Web Audio API
-                    playFallbackBeep();
-                });
+        // Create Web Audio context for mobile compatibility
+        function createAudioContext() {
+            if (!audioContext) {
+                audioContext = new (window.AudioContext || window.webkitAudioContext)();
             }
-            
-            // Reset audio to start and play
-            timeUpAudio.currentTime = 0;
-            
-            // Play with promise for better mobile compatibility
-            const playPromise = timeUpAudio.play();
-            
-            if (playPromise !== undefined) {
-                playPromise.catch(error => {
-                    console.log('Auto-play prevented, trying fallback:', error);
-                    // Try fallback method
-                    playFallbackBeep();
-                });
-            }
+            return audioContext;
         }
 
-        // Fallback beep using Web Audio API (works on most mobile devices)
-        function playFallbackBeep() {
+        // Play time-up sound using Web Audio API (works on mobile)
+        function playTimeUpSound() {
             try {
-                const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-                const oscillator = audioContext.createOscillator();
-                const gainNode = audioContext.createGain();
+                const context = createAudioContext();
+                const oscillator = context.createOscillator();
+                const gainNode = context.createGain();
                 
                 oscillator.connect(gainNode);
-                gainNode.connect(audioContext.destination);
+                gainNode.connect(context.destination);
                 
-                oscillator.frequency.value = 800;
+                // Create alarm sound
+                oscillator.frequency.setValueAtTime(800, context.currentTime);
+                oscillator.frequency.setValueAtTime(600, context.currentTime + 0.1);
+                oscillator.frequency.setValueAtTime(800, context.currentTime + 0.2);
+                oscillator.frequency.setValueAtTime(600, context.currentTime + 0.3);
+                
                 oscillator.type = 'sine';
                 
-                gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
-                gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 1);
+                gainNode.gain.setValueAtTime(0.5, context.currentTime);
+                gainNode.gain.exponentialRampToValueAtTime(0.01, context.currentTime + 1);
                 
-                oscillator.start(audioContext.currentTime);
-                oscillator.stop(audioContext.currentTime + 1);
+                oscillator.start(context.currentTime);
+                oscillator.stop(context.currentTime + 1);
+                
+                // Resume audio context if suspended (required for mobile)
+                if (context.state === 'suspended') {
+                    context.resume();
+                }
             } catch (e) {
-                console.error('Web Audio API not supported:', e);
+                console.error('Error playing time-up sound:', e);
             }
         }
 
@@ -556,13 +538,11 @@
             startBtn.disabled = true;
             nextBtn.disabled = true;
             repeatBtn.disabled = true;
-            // Keep resetBtn enabled so user can start over
         }
 
         // Play a random word
         function playRandomWord() {
             if (playedWords.length >= words.length) {
-                // All words have been played
                 currentWordElement.textContent = "All words completed!";
                 nextBtn.disabled = true;
                 return;
@@ -589,31 +569,33 @@
             repeatBtn.disabled = false;
         }
 
-        // Play the current word
+        // Play the current word with mobile compatibility
         function playCurrentWord() {
             if (!currentWord) return;
             
-            const audio = new Audio(currentWord.audio);
+            // Create and play audio
+            const audio = new Audio();
+            audio.src = currentWord.audio;
+            audio.preload = 'auto';
             
-            // Add error handling for word audio
-            audio.addEventListener('error', function() {
-                console.error('Error loading word audio:', currentWord.text);
-            });
+            // Mobile-specific handling
+            if (isMobile) {
+                // Ensure audio context is created and resumed
+                createAudioContext();
+                if (audioContext && audioContext.state === 'suspended') {
+                    audioContext.resume();
+                }
+            }
             
             const playPromise = audio.play();
             
             if (playPromise !== undefined) {
                 playPromise.catch(error => {
-                    console.log('Word audio play prevented:', error);
+                    console.log('Audio play failed, showing instructions:', error);
+                    mobileWarning.textContent = "Tap the screen to enable audio, then press Repeat";
+                    mobileWarning.style.display = 'block';
                 });
             }
-            
-            isPlaying = true;
-            
-            // Reset playing state when audio ends
-            audio.onended = () => {
-                isPlaying = false;
-            };
         }
 
         // Update progress display
@@ -634,19 +616,32 @@
             });
         }
 
-        // Reset the app state
+        // Reset the app to default state
         function resetApp() {
-            stopTimer();
-            resetTimer();
-            playedWords = [];
-            currentWord = null;
-            currentWordElement.textContent = "Click Start to begin";
             updateProgress();
-            updateWordCards();
             startBtn.disabled = false;
             nextBtn.disabled = true;
             repeatBtn.disabled = true;
-            timeUpTriggered = false;
+            stopTimer();
+            seconds = 0;
+            timerElement.textContent = formatTime(seconds);
+            playedWords = [];
+            currentWord = null;
+            currentWordElement.textContent = "Click Start to begin";
+            mobileWarning.style.display = 'none';
+            updateWordCards();
+        }
+
+        // Initialize audio context on user interaction (required for mobile)
+        function initializeAudioOnInteraction() {
+            const initAudio = () => {
+                createAudioContext();
+                document.removeEventListener('click', initAudio);
+                document.removeEventListener('touchstart', initAudio);
+            };
+            
+            document.addEventListener('click', initAudio);
+            document.addEventListener('touchstart', initAudio);
         }
 
         // Event listeners
@@ -661,7 +656,7 @@
         });
 
         repeatBtn.addEventListener('click', () => {
-            if (currentWord && !isPlaying) {
+            if (currentWord) {
                 playCurrentWord();
             }
         });
@@ -671,6 +666,12 @@
         // Initialize the app
         initializeWordsGrid();
         updateProgress();
+        initializeAudioOnInteraction();
+        
+        // Show mobile-specific instructions
+        if (isMobile) {
+            mobileWarning.style.display = 'block';
+        }
     </script>
 </body>
 </html>
