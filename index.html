@@ -143,6 +143,8 @@
             gap: 10px;
         }
 
+
+
         button {
             background-color: #0d6efd;
             border-radius: 0px;
@@ -168,7 +170,9 @@
             gap: 8px;
         }
 
-
+        .rst {
+            background-color: #ff1919;
+        }
         
         /* .btn-primary {
             background: #436fff;
@@ -302,11 +306,11 @@
             <div class="buttons-section">
                 <dv class="row">
                     <button class="btn btn-primary" id="startBtn">Start</button>
-
-                    <button class="btn btn-outline" id="resetBtn" disabled>Reset</button>
+                    <button class="btn btn-outline" id="repeatBtn" disabled>Repeat</button>
+                    
                 </dv>
                 <div class="row">
-                    <button class="btn btn-outline" id="repeatBtn" disabled>Repeat</button>
+                    <button class="btn btn-outline rst" id="resetBtn">Reset</button>
                     <button class="btn btn-secondary" id="nextBtn" disabled>Next</button>
                 </div>
             </div>
@@ -419,6 +423,9 @@
 
         ];
 
+        // Time-up sound URL (using your provided link)
+        const timeUpSound = "https://cdn.pixabay.com/audio/2025/10/16/audio_becf266b23.mp3";
+
         // DOM elements
         const wordsGrid = document.getElementById('wordsGrid');
         const currentWordElement = document.getElementById('currentWord');
@@ -435,6 +442,8 @@
         let playedWords = [];
         let currentWord = null;
         let isPlaying = false;
+        let timeUpTriggered = false;
+        let timeUpAudio = null;
 
         // Initialize the words grid
         function initializeWordsGrid() {
@@ -463,6 +472,15 @@
             timerInterval = setInterval(() => {
                 seconds++;
                 timerElement.textContent = formatTime(seconds);
+                
+                // Check if 1 minute (60 seconds) has passed
+                if (seconds >= 5 && !timeUpTriggered) {
+                    timeUpTriggered = true;
+                    stopTimer();
+                    playTimeUpSound();
+                    currentWordElement.textContent = "Time's Up!";
+                    disableAllButtons();
+                }
             }, 1000);
         }
 
@@ -476,7 +494,69 @@
         function resetTimer() {
             stopTimer();
             seconds = 0;
+            timeUpTriggered = false;
             timerElement.textContent = formatTime(seconds);
+        }
+
+        // Preload and play time-up sound with mobile compatibility
+        function playTimeUpSound() {
+            // Create audio element if it doesn't exist
+            if (!timeUpAudio) {
+                timeUpAudio = new Audio(timeUpSound);
+                timeUpAudio.preload = 'auto';
+                
+                // Add error handling
+                timeUpAudio.addEventListener('error', function() {
+                    console.error('Error loading time-up sound');
+                    // Fallback to a simple beep using Web Audio API
+                    playFallbackBeep();
+                });
+            }
+            
+            // Reset audio to start and play
+            timeUpAudio.currentTime = 0;
+            
+            // Play with promise for better mobile compatibility
+            const playPromise = timeUpAudio.play();
+            
+            if (playPromise !== undefined) {
+                playPromise.catch(error => {
+                    console.log('Auto-play prevented, trying fallback:', error);
+                    // Try fallback method
+                    playFallbackBeep();
+                });
+            }
+        }
+
+        // Fallback beep using Web Audio API (works on most mobile devices)
+        function playFallbackBeep() {
+            try {
+                const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                const oscillator = audioContext.createOscillator();
+                const gainNode = audioContext.createGain();
+                
+                oscillator.connect(gainNode);
+                gainNode.connect(audioContext.destination);
+                
+                oscillator.frequency.value = 800;
+                oscillator.type = 'sine';
+                
+                gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+                gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 1);
+                
+                oscillator.start(audioContext.currentTime);
+                oscillator.stop(audioContext.currentTime + 1);
+            } catch (e) {
+                console.error('Web Audio API not supported:', e);
+            }
+        }
+
+        // Disable all buttons when time is up
+        function disableAllButtons() {
+            startBtn.disabled = true;
+            nextBtn.disabled = true;
+            repeatBtn.disabled = true;
+            // Keep resetBtn enabled so user can start over
         }
 
         // Play a random word
@@ -514,7 +594,20 @@
             if (!currentWord) return;
             
             const audio = new Audio(currentWord.audio);
-            audio.play();
+            
+            // Add error handling for word audio
+            audio.addEventListener('error', function() {
+                console.error('Error loading word audio:', currentWord.text);
+            });
+            
+            const playPromise = audio.play();
+            
+            if (playPromise !== undefined) {
+                playPromise.catch(error => {
+                    console.log('Word audio play prevented:', error);
+                });
+            }
+            
             isPlaying = true;
             
             // Reset playing state when audio ends
@@ -553,7 +646,7 @@
             startBtn.disabled = false;
             nextBtn.disabled = true;
             repeatBtn.disabled = true;
-            resetBtn.disabled = true;
+            timeUpTriggered = false;
         }
 
         // Event listeners
@@ -561,7 +654,6 @@
             startTimer();
             playRandomWord();
             startBtn.disabled = true;
-          resetBtn.disabled = false;
         });
 
         nextBtn.addEventListener('click', () => {
